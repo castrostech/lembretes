@@ -1,0 +1,51 @@
+Quero que você crie um projeto completo em Next.js que funcione como um SaaS para empresas, com backend e frontend integrados no mesmo repositório.
+
+O app será mobile-first (responsivo) e depois será empacotado como app Android/iOS via Capacitor. O backend ficará no próprio Next.js usando API Routes.
+
+Funcionalidade inicial do MVP:
+1. Autenticação:
+   - Cadastro e login de usuários (gestores de empresas).
+   - Cada usuário representa uma empresa.
+   - Proteger todas as rotas autenticadas.
+   - Armazenar dados de sessão no banco.
+
+2. Controle de assinatura:
+   - Plano mensal de R$100.
+   - 7 dias grátis (trial).
+   - Bloqueio automático após fim do trial ou cancelamento da assinatura.
+   - Pagamentos via Stripe Checkout.
+   - Armazenar status de assinatura no banco.
+
+3. Módulo de treinamentos:
+   - Cadastro de funcionários: nome, e-mail, cargo.
+   - Cadastro de treinamentos: título, data de conclusão, validade (em dias).
+   - Associação de treinamentos aos funcionários.
+   - Listagem de treinamentos por funcionário.
+
+4. Sistema de alertas:
+   - Agendamento diário (cron job no backend).
+   - Se faltar 5 dias para vencer o treinamento, enviar e-mail para o gestor que cadastrou o funcionário.
+   - Enviar também no dia do vencimento.
+   - Usar SendGrid ou Resend para envio de e-mails.
+
+5. Layout:
+   - UI moderna usando TailwindCSS.
+   - Mobile-first responsivo.
+   - Dashboard para o gestor.
+   - Tela de login/registro.
+   - Tela de funcionários e treinamentos.
+
+6. Banco de dados:
+   - Usar Prisma ORM.
+   - SQLite no desenvolvimento, Postgres na produção.
+   - Migrações automáticas.
+
+Outros detalhes:
+- Organizar código para fácil manutenção.
+- Criar endpoints seguros no backend.
+- Utilizar JWT ou NextAuth para autenticação.
+- Documentar brevemente no README como rodar localmente.
+- Código todo em JavaScript (não TypeScript nesta primeira versão).
+- Pronto para deploy na Vercel.
+
+Objetivo: Gerar um projeto funcional e executável no Replit que eu possa rodar com um clique em "Run", fazer deploy e já ter o SaaS básico funcionando.
