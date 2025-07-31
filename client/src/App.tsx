@@ -4,8 +4,9 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import { useEffect } from "react";
 import NotFound from "./pages/not-found";
-import Landing from "./pages/landing";
+import AuthPage from "./pages/auth";
 import Dashboard from "./pages/dashboard";
 import Employees from "./pages/employees";
 import Trainings from "./pages/trainings";
@@ -15,6 +16,24 @@ import Billing from "./pages/billing";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
+
+  // Handle OAuth callback
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const userParam = urlParams.get('user');
+    
+    if (token && userParam) {
+      try {
+        const user = JSON.parse(decodeURIComponent(userParam));
+        localStorage.setItem('token', token);
+        queryClient.setQueryData(["/api/auth/user"], user);
+        window.history.replaceState({}, document.title, "/");
+      } catch (error) {
+        console.error("Error parsing OAuth callback:", error);
+      }
+    }
+  }, []);
 
   if (isLoading) {
     return (
@@ -30,7 +49,7 @@ function Router() {
   return (
     <Switch>
       {!isAuthenticated ? (
-        <Route path="/" component={Landing} />
+        <Route path="/" component={AuthPage} />
       ) : (
         <>
           <Route path="/" component={Dashboard} />

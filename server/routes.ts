@@ -1,121 +1,70 @@
+/**
+ * Application Routes
+ * 
+ * Environment Variables Required:
+ * - JWT_SECRET: Secret key for JWT token signing
+ * - GOOGLE_CLIENT_ID: Google OAuth client ID
+ * - GOOGLE_CLIENT_SECRET: Google OAuth client secret
+ * - GOOGLE_REDIRECT_URI: Google OAuth redirect URI
+ * - STRIPE_SECRET_KEY: Stripe secret key for payments
+ * - STRIPE_WEBHOOK_SECRET: Stripe webhook secret for signature verification
+ * - VITE_STRIPE_PUBLIC_KEY: Stripe publishable key (for frontend)
+ */
+
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
-import Stripe from "stripe";
+import cookieParser from "cookie-parser";
+
+// Controllers
+import * as authController from "./controllers/authController";
+import * as stripeController from "./controllers/stripeController";
+
+// Middleware
+import { authenticateToken, checkSubscription, optionalAuth } from "./middleware/auth";
+
+// Storage and utilities
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
 import { insertEmployeeSchema, insertTrainingSchema } from "@shared/schema";
-import { z } from "zod";
 import { setupCronJobs } from "./cronJobs";
 
-let stripe: Stripe | null = null;
-
-if (process.env.STRIPE_SECRET_KEY) {
-  stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-    apiVersion: "2023-10-16",
-  });
-} else {
-  console.warn('STRIPE_SECRET_KEY not set - subscription features will be disabled');
-}
-
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth middleware
-  await setupAuth(app);
+  // Add cookie parser for JWT tokens
+  app.use(cookieParser());
 
   // Start cron jobs for email alerts
   setupCronJobs();
 
-  // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
-      res.json(user);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
-    }
-  });
+  // ===== AUTHENTICATION ROUTES =====
+  
+  // Traditional auth
+  app.post('/api/auth/register', authController.register);
+  app.post('/api/auth/login', authController.login);
+  app.post('/api/auth/logout', authController.logout);
+  
+  // Google OAuth
+  app.get('/api/auth/google', authController.googleAuth);
+  app.get('/api/auth/google/callback', authController.googleCallback);
+  
+  // Protected auth routes
+  app.get('/api/auth/user', authenticateToken, authController.getCurrentUser);
 
-  // Subscription routes
-  app.post('/api/create-subscription', isAuthenticated, async (req: any, res) => {
-    if (!stripe) {
-      return res.status(503).json({ 
-        message: "Subscription service not available - Stripe not configured" 
-      });
-    }
+  // ===== STRIPE PAYMENT ROUTES =====
+  
+  // Subscription management
+  app.post('/api/stripe/create-checkout-session', authenticateToken, stripeController.createCheckoutSession);
+  app.post('/api/stripe/create-portal-session', authenticateToken, stripeController.createPortalSession);
+  app.get('/api/stripe/subscription-status', authenticateToken, stripeController.getSubscriptionStatus);
+  
+  // Stripe webhooks (no auth required)
+  app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeController.handleWebhook);
 
-    try {
-      const userId = req.user.claims.sub;
-      let user = await storage.getUser(userId);
-
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      if (user.stripeSubscriptionId) {
-        const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
-        
-        if (subscription.latest_invoice && typeof subscription.latest_invoice === 'object') {
-          const paymentIntent = subscription.latest_invoice.payment_intent;
-          if (paymentIntent && typeof paymentIntent === 'object') {
-            return res.json({
-              subscriptionId: subscription.id,
-              clientSecret: paymentIntent.client_secret,
-            });
-          }
-        }
-      }
-
-      if (!user.email) {
-        return res.status(400).json({ message: 'No user email on file' });
-      }
-
-      // Create Stripe customer
-      const customer = await stripe.customers.create({
-        email: user.email,
-        name: `${user.firstName} ${user.lastName}`.trim(),
-      });
-
-      // Create subscription (R$100 = $18.50 USD approximately)
-      const subscription = await stripe.subscriptions.create({
-        customer: customer.id,
-        items: [{
-          price_data: {
-            currency: 'brl',
-            product_data: {
-              name: 'TrainManager Pro - Plano Professional',
-              description: 'Gestão completa de treinamentos corporativos',
-            },
-            unit_amount: 10000, // R$100.00 in centavos
-            recurring: {
-              interval: 'month',
-            },
-          },
-        }],
-        trial_period_days: 7,
-        payment_behavior: 'default_incomplete',
-        expand: ['latest_invoice.payment_intent'],
-      });
-
-      // Update user with Stripe info
-      await storage.updateUserStripeInfo(userId, customer.id, subscription.id);
-
-      const paymentIntent = subscription.latest_invoice?.payment_intent;
-      
-      res.json({
-        subscriptionId: subscription.id,
-        clientSecret: paymentIntent && typeof paymentIntent === 'object' ? paymentIntent.client_secret : null,
-      });
-    } catch (error: any) {
-      console.error("Subscription error:", error);
-      res.status(400).json({ message: error.message });
-    }
-  });
-
+  // ===== PROTECTED APPLICATION ROUTES =====
+  
   // Dashboard routes
-  app.get('/api/dashboard/stats', isAuthenticated, async (req: any, res) => {
+  app.get('/api/dashboard/stats', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.userId;
       const stats = await storage.getDashboardStats(userId);
       res.json(stats);
     } catch (error) {
@@ -125,9 +74,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Employee routes
-  app.get('/api/employees', isAuthenticated, async (req: any, res) => {
+  app.get('/api/employees', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.userId;
       const employees = await storage.getEmployees(userId);
       res.json(employees);
     } catch (error) {
@@ -136,9 +85,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/employees/:id', isAuthenticated, async (req: any, res) => {
+  app.get('/api/employees/:id', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.userId;
       const employee = await storage.getEmployee(req.params.id, userId);
       if (!employee) {
         return res.status(404).json({ message: "Employee not found" });
@@ -150,45 +99,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/employees', isAuthenticated, async (req: any, res) => {
+  app.post('/api/employees', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const employeeData = insertEmployeeSchema.parse(req.body);
+      const userId = req.user.userId;
+      const validatedData = insertEmployeeSchema.parse(req.body);
       
       const employee = await storage.createEmployee({
-        ...employeeData,
+        ...validatedData,
         userId,
       });
       
       res.status(201).json(employee);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid employee data", errors: error.errors });
-      }
+    } catch (error: any) {
       console.error("Error creating employee:", error);
+      
+      if (error.issues) {
+        return res.status(400).json({ 
+          message: "Invalid data", 
+          errors: error.issues.map((issue: any) => issue.message) 
+        });
+      }
+      
       res.status(500).json({ message: "Failed to create employee" });
     }
   });
 
-  app.put('/api/employees/:id', isAuthenticated, async (req: any, res) => {
+  app.put('/api/employees/:id', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const employeeData = insertEmployeeSchema.partial().parse(req.body);
+      const userId = req.user.userId;
+      const validatedData = insertEmployeeSchema.partial().parse(req.body);
       
-      const employee = await storage.updateEmployee(req.params.id, userId, employeeData);
+      const employee = await storage.updateEmployee(req.params.id, userId, validatedData);
       res.json(employee);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid employee data", errors: error.errors });
-      }
+    } catch (error: any) {
       console.error("Error updating employee:", error);
+      
+      if (error.issues) {
+        return res.status(400).json({ 
+          message: "Invalid data", 
+          errors: error.issues.map((issue: any) => issue.message) 
+        });
+      }
+      
       res.status(500).json({ message: "Failed to update employee" });
     }
   });
 
-  app.delete('/api/employees/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/employees/:id', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.userId;
       await storage.deleteEmployee(req.params.id, userId);
       res.status(204).send();
     } catch (error) {
@@ -198,18 +157,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Training routes
-  app.get('/api/trainings', isAuthenticated, async (req: any, res) => {
+  app.get('/api/trainings', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const { employeeId } = req.query;
-      
-      let trainings;
-      if (employeeId) {
-        trainings = await storage.getTrainingsByEmployee(employeeId as string, userId);
-      } else {
-        trainings = await storage.getTrainings(userId);
-      }
-      
+      const userId = req.user.userId;
+      const trainings = await storage.getTrainings(userId);
       res.json(trainings);
     } catch (error) {
       console.error("Error fetching trainings:", error);
@@ -217,9 +168,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/trainings/:id', isAuthenticated, async (req: any, res) => {
+  app.get('/api/trainings/employee/:employeeId', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.userId;
+      const trainings = await storage.getTrainingsByEmployee(req.params.employeeId, userId);
+      res.json(trainings);
+    } catch (error) {
+      console.error("Error fetching trainings:", error);
+      res.status(500).json({ message: "Failed to fetch trainings" });
+    }
+  });
+
+  app.get('/api/trainings/:id', authenticateToken, checkSubscription, async (req: any, res) => {
+    try {
+      const userId = req.user.userId;
       const training = await storage.getTraining(req.params.id, userId);
       if (!training) {
         return res.status(404).json({ message: "Training not found" });
@@ -231,45 +193,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/trainings', isAuthenticated, async (req: any, res) => {
+  app.post('/api/trainings', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const trainingData = insertTrainingSchema.parse(req.body);
+      const userId = req.user.userId;
+      const validatedData = insertTrainingSchema.parse(req.body);
       
       const training = await storage.createTraining({
-        ...trainingData,
+        ...validatedData,
         userId,
       });
       
       res.status(201).json(training);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid training data", errors: error.errors });
-      }
+    } catch (error: any) {
       console.error("Error creating training:", error);
+      
+      if (error.issues) {
+        return res.status(400).json({ 
+          message: "Invalid data", 
+          errors: error.issues.map((issue: any) => issue.message) 
+        });
+      }
+      
       res.status(500).json({ message: "Failed to create training" });
     }
   });
 
-  app.put('/api/trainings/:id', isAuthenticated, async (req: any, res) => {
+  app.put('/api/trainings/:id', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const trainingData = insertTrainingSchema.partial().parse(req.body);
+      const userId = req.user.userId;
+      const validatedData = insertTrainingSchema.partial().parse(req.body);
       
-      const training = await storage.updateTraining(req.params.id, userId, trainingData);
+      const training = await storage.updateTraining(req.params.id, userId, validatedData);
       res.json(training);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid training data", errors: error.errors });
-      }
+    } catch (error: any) {
       console.error("Error updating training:", error);
+      
+      if (error.issues) {
+        return res.status(400).json({ 
+          message: "Invalid data", 
+          errors: error.issues.map((issue: any) => issue.message) 
+        });
+      }
+      
       res.status(500).json({ message: "Failed to update training" });
     }
   });
 
-  app.delete('/api/trainings/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/trainings/:id', authenticateToken, checkSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.userId;
       await storage.deleteTraining(req.params.id, userId);
       res.status(204).send();
     } catch (error) {
@@ -278,6 +250,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== PUBLIC ROUTES (Optional Auth) =====
+  
+  // Health check
+  app.get('/api/health', (req, res) => {
+    res.json({ 
+      status: 'healthy', 
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development'
+    });
+  });
+
+  // Create HTTP server
   const httpServer = createServer(app);
+
   return httpServer;
 }

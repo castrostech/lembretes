@@ -13,9 +13,10 @@ Preferred communication style: Simple, everyday language.
 ### Backend Architecture
 - **Framework**: Express.js with TypeScript
 - **Database**: PostgreSQL with Drizzle ORM
-- **Authentication**: Replit Auth with OpenID Connect
-- **Session Management**: PostgreSQL-based session storage using connect-pg-simple
+- **Authentication**: Custom JWT + Google OAuth 2.0 (NO Replit Auth)
+- **Session Management**: JWT tokens with 7-day expiration
 - **API Structure**: RESTful API endpoints under `/api` prefix
+- **Payment Processing**: Stripe integration with webhooks
 
 ### Frontend Architecture
 - **Framework**: React with TypeScript
@@ -36,10 +37,11 @@ Preferred communication style: Simple, everyday language.
 ## Key Components
 
 ### Authentication System
-- Uses Replit Auth for secure user authentication
-- Session-based authentication with PostgreSQL storage
-- Automatic redirect handling for unauthorized access
-- User profile management with company information
+- **Traditional Auth**: Email/password registration and login with bcrypt
+- **Google OAuth 2.0**: Social login integration 
+- **JWT Tokens**: 7-day expiration with secure signing
+- **Access Keys**: Unique access key generated for each user
+- **No Replit Auth**: Completely removed, using custom system
 
 ### Subscription Management
 - Stripe integration for payment processing
@@ -121,14 +123,14 @@ Preferred communication style: Simple, everyday language.
 - `VITE_FIREBASE_APP_ID`: Firebase app ID (optional)
 
 ### Recent Changes (Jan 31, 2025)
-- ✅ **Alerts System**: Created comprehensive alerts page with filtering and sorting
-- ✅ **Mobile-First Design**: Implemented responsive navigation with MobileNavigation component
-- ✅ **Firebase Integration**: Added Google Authentication as primary login option
-- ✅ **Capacitor Setup**: Configured for Android/iOS app deployment
-- ✅ **Dashboard Navigation**: Fixed all buttons to navigate correctly between pages
-- ✅ **Stripe Optional**: Made Stripe payment system optional for testing
-- ✅ **Improved Landing**: Enhanced login page with dual auth options
-- ✅ **README Documentation**: Comprehensive setup and deployment guide
+- ✅ **Complete System Rebuild**: Migrated from Replit Agent to full custom solution
+- ✅ **Custom Authentication**: Implemented JWT + Google OAuth 2.0, removed Replit Auth completely
+- ✅ **Stripe Integration**: Full payment system with checkout, webhooks, and subscription management
+- ✅ **Organized Backend**: Created controllers and middleware for proper architecture
+- ✅ **New Database Schema**: Updated users table for custom auth with access keys
+- ✅ **Beautiful Auth Page**: Modern login/register with Google OAuth option
+- ✅ **Complete Documentation**: Comprehensive setup guide with all required environment variables
+- ✅ **Security Improvements**: BCrypt password hashing, JWT tokens with 7-day expiration
 
 ### Mobile App Preparation
 - **Capacitor**: Configured for Android/iOS deployment
