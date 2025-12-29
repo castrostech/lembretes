@@ -17,16 +17,16 @@ import Billing from "./pages/billing";
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
 
-  // Handle OAuth callback
+  // Handle OAuth  callback
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    const userParam = urlParams.get('user');
-    
+    const token = urlParams.get("token");
+    const userParam = urlParams.get("user");
+
     if (token && userParam) {
       try {
         const user = JSON.parse(decodeURIComponent(userParam));
-        localStorage.setItem('token', token);
+        localStorage.setItem("token", token);
         queryClient.setQueryData(["/api/auth/user"], user);
         window.history.replaceState({}, document.title, "/");
       } catch (error) {
